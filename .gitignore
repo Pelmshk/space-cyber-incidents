@@ -1,0 +1,16 @@
+# Сырые и обработанные данные (они генерируются скриптами)
+data/raw/
+data/processed/
+data/external/
+
+# Финальные артефакты (тяжелые БД)
+output/*.sqlite
+output/*.parquet
+output/*.csv
+
+# Системные файлы R
+.Rhistory
+.RData
+.Rproj.user
+renv/library/
+renv/staging/

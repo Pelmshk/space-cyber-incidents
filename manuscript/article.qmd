@@ -1,0 +1,34 @@
+---
+title: "Systematization of Cybersecurity Incidents in Space Systems: An OSINT-Based Analysis"
+author: "Laboratory RADAR Team"
+date: "`r Sys.Date()`"
+format: pdf
+bibliography: bibliography.bib
+---
+
+## Abstract
+
+...
+
+## Introduction
+
+...
+
+## Methods
+
+...
+
+## Results
+
+...
+
+## Discussion
+
+...
+
+## Conclusion
+
+...
+
+## References
+

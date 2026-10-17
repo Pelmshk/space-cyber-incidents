@@ -1,0 +1,19 @@
+---
+title: "Executive Summary - Space Cyber Incidents"
+author: "Лаборатория РАДАР"
+date: "`r Sys.Date()`"
+format: html
+---
+
+## Ключевые выводы
+
+1. ...
+2. ...
+3. ...
+
+## Рекомендации
+
+...
+
+[Полный отчет](report.html)
+
