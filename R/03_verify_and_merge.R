@@ -1,12 +1,20 @@
 # ============================================================================
 # R/03_verify_and_merge.R
-# Фильтрация шума, кластеризация, верификация и разметка инцидентов (v2)
+# Фильтрация шума, кластеризация, верификация и разметка инцидентов (v3)
+# ============================================================================
+# Изменения:
+# 1. Адаптирован под схему корпуса из 02 (published_date = POSIXct)
+# 2. Убрана ручная экспертная разметка крупнейшего кластера
+# 3. Расширен словарь целей и классификаторы
+# 4. Улучшена диагностика и вывод результатов
+# 5. Убраны эмодзи
 # ============================================================================
 
 suppressPackageStartupMessages({
   library(tidyverse)
   library(stringr)
   library(lubridate)
+  library(cli)
 })
 
 # ----------------------------------------------------------------------------
@@ -17,71 +25,169 @@ PROCESSED_DIR <- "data/processed"
 corpus_path <- file.path(PROCESSED_DIR, "corpus_mentions_v1.rds")
 
 if (!file.exists(corpus_path)) {
-  stop("❌ Файл корпуса не найден. Сначала запустите R/02_parse_and_clean.R")
+  stop("Файл корпуса не найден. Сначала запустите R/02_parse_and_clean.R")
 }
 
 corpus <- read_rds(corpus_path)
-cat(sprintf("✔ Загружен корпус: %d упоминаний\n", nrow(corpus)))
+cli::cli_alert_success("Загружен корпус: {nrow(corpus)} упоминаний")
 
 # ----------------------------------------------------------------------------
 # 1. Фильтрация нерелевантных упоминаний (шум)
 # ----------------------------------------------------------------------------
 
-cat("\n1. Фильтрация нерелевантных упоминаний (шум)...\n")
+cli::cli_h2("1. Фильтрация нерелевантных упоминаний (шум)")
 
 NOISE_PATTERNS <- c(
+  # Дроны и робототехника (не космические системы)
   "drone", "uav", "quadcopter", "wingcopter",
   "robot", "armed robot", "battlebot",
+  # Документы и события (не инциденты)
   "report.*released", "report.*publish", "white paper",
   "proposal", "budget", "funding.*propos",
-  "conference", "summit", "event.*announc"
+  "conference", "summit", "event.*announc",
+  # Общие темы (не кибербезопасность)
+  "job opening", "career opportunity", "hiring",
+  "product launch", "new feature", "update available"
 )
 
-cat(sprintf("   До фильтрации: %d упоминаний\n", nrow(corpus)))
-
+n_before_noise <- nrow(corpus)
 corpus <- corpus %>%
   filter(
     !str_detect(tolower(title), str_c(NOISE_PATTERNS, collapse = "|"))
   )
+n_removed_noise <- n_before_noise - nrow(corpus)
 
-cat(sprintf("   После фильтрации: %d упоминаний (удалено %d шумовых)\n",
-            nrow(corpus), nrow(read_rds(corpus_path)) - nrow(corpus)))
+cli::cli_alert_info("До фильтрации: {n_before_noise} упоминаний")
+cli::cli_alert_info("После фильтрации: {nrow(corpus)} упоминаний")
+cli::cli_alert_success("Удалено шумовых: {n_removed_noise}")
+
+if (nrow(corpus) == 0) {
+  stop("Корпус пуст после фильтрации шума. Проверьте NOISE_PATTERNS.")
+}
 
 # ----------------------------------------------------------------------------
-# 2. Извлечение сущностей (Цели / Targets) — РАСШИРЕННЫЙ СЛОВАРЬ
+# 2. Извлечение сущностей (Цели / Targets) — МАКСИМАЛЬНО РАСШИРЕННЫЙ СЛОВАРЬ
 # ----------------------------------------------------------------------------
 
 TARGETS_DICT <- c(
-  # Конкретные компании/системы
-  "Viasat", "Starlink", "Iridium", "Inmarsat", "Intelsat", "SES", "OneWeb",
-  "GPS", "GLONASS", "Galileo", "BeiDou", "GNSS",
-  "SpaceX", "Thales", "Airbus", "Boeing", "Lockheed", "Northrop",
-  "NASA", "Roscosmos", "ESA", "ISRO", "CNSA",
-  # Общие категории космического сегмента
+  # === Конкретные компании и операторы (30+) ===
+  "Viasat", "ViaSat", "Starlink", "Iridium", "Inmarsat", "Intelsat", "SES", "OneWeb",
+  "SpaceX", "Thales", "Airbus", "Boeing", "Lockheed", "Northrop", "Raytheon",
+  "L3Harris", "General Dynamics", "BAE Systems", "Leonardo", "Safran",
+  "Rocket Lab", "Blue Origin", "Virgin Galactic", "Arianespace", "Roscosmos",
+  "ISRO", "CNSA", "JAXA", "ESA", "NASA", "NOAA", "EUMETSAT",
+  
+  # === Космические системы и технологии (20+) ===
   "Satellite", "Spacecraft", "Payload", "Transponder", "Uplink", "Downlink",
-  # Наземный сегмент
-  "Ground Station", "Earth Station", "Control Center", "Network", "Telecom",
-  "ISP", "Infrastructure", "Critical Infrastructure",
-  # Географические/политические цели
-  "Ukraine", "Russia", "China", "Iran", "North Korea", "Syria",
-  "Military", "Defense", "Government", "NATO",
-  # Отрасли
-  "Maritime", "Aviation", "Shipping", "Energy", "Finance", "Healthcare",
-  # Общие термины
-  "Operator", "Provider", "Carrier", "Service"
+  "Ground Station", "Earth Station", "Control Center", "Mission Control",
+  "Telemetry", "Command Link", "Data Link", "Communication System",
+  "Navigation System", "Positioning System", "Timing System",
+  "Orbit", "Constellation", "Launch Vehicle", "Rocket", "Space Debris",
+  
+  # === Навигационные системы (10+) ===
+  "GPS", "GLONASS", "Galileo", "BeiDou", "GNSS", "NavIC", "QZSS",
+  "Satellite Navigation", "Global Navigation", "Positioning",
+  
+  # === Географические/политические цели (15+) ===
+  "Ukraine", "Russia", "China", "Iran", "North Korea", "Syria", "Taiwan",
+  "USA", "United States", "Europe", "NATO", "EU", "European Union",
+  "Middle East", "Asia-Pacific", "Arctic",
+  
+  # === Отрасли и секторы (15+) ===
+  "Military", "Defense", "Government", "Critical Infrastructure",
+  "Energy", "Power Grid", "Transportation", "Aviation", "Maritime", "Shipping",
+  "Telecommunications", "Telecom", "Finance", "Banking", "Healthcare",
+  "Emergency Services", "Public Safety",
+  
+  # === Типы кибератак и угроз (20+) ===
+  "Cyber Attack", "Cyberattack", "Cyber Threat", "Cyber Incident",
+  "Hack", "Breach", "Intrusion", "Malware", "Ransomware", "Phishing",
+  "DDoS", "Denial of Service", "Zero-day", "APT", "Advanced Persistent Threat",
+  "Supply Chain Attack", "Insider Threat", "Data Breach", "Data Theft",
+  "Espionage", "Sabotage", "Disruption", "Jamming", "Spoofing",
+  
+  # === Общие термины безопасности (15+) ===
+  "Security", "Vulnerability", "Threat", "Risk", "Incident",
+  "Advisory", "Alert", "Warning", "Exploit", "Patch",
+  "Authentication", "Encryption", "Firewall", "Intrusion Detection",
+  "Cybersecurity", "Information Security", "Network Security",
+  
+  # === Космические операции и миссии (10+) ===
+  "Launch", "Mission", "Orbit Insertion", "Deployment", "Docking",
+  "Spacewalk", "EVA", "IVA", "Reentry", "Landing",
+  "Satellite Deployment", "Constellation Deployment",
+  
+  # === Технологии и протоколы (10+) ===
+  "5G", "IoT", "Cloud", "AI", "Artificial Intelligence", "Machine Learning",
+  "Blockchain", "Quantum", "Encryption Protocol", "Communication Protocol"
 )
 
 extract_target <- function(text) {
   if (is.na(text)) return("Unknown")
-  text <- str_to_upper(text)
-  matches <- str_extract_all(text, str_c("\\b", str_to_upper(TARGETS_DICT), "\\b", collapse = "|"))[[1]]
-  if (length(matches) == 0) return("Unknown")
-  return(paste(unique(matches), collapse = ", "))
+  
+  text_upper <- str_to_upper(text)
+  
+  # Ищем все совпадения
+  pattern <- str_c("\\b", str_to_upper(TARGETS_DICT), "\\b", collapse = "|")
+  matches <- str_extract_all(text_upper, pattern)[[1]]
+  
+  if (length(matches) == 0) {
+    # Если точных совпадений нет, пробуем частичные (для составных терминов)
+    partial_matches <- c()
+    
+    # Проверяем наличие ключевых слов без границ слов
+    for (term in TARGETS_DICT) {
+      if (str_detect(text_upper, str_to_upper(term))) {
+        partial_matches <- c(partial_matches, str_to_upper(term))
+      }
+    }
+    
+    if (length(partial_matches) > 0) {
+      return(paste(unique(partial_matches), collapse = ", "))
+    }
+    
+    return("Unknown")
+  }
+  
+  # Убираем дубликаты и сортируем
+  unique_matches <- unique(matches)
+  
+  # Приоритизация: конкретные компании > системы > общие термины
+  priority_order <- c(
+    "VIASAT", "STARLINK", "IRIDIUM", "INMARSAT", "INTELSAT", "SES", "ONEWEB",
+    "SPACEX", "THALES", "AIRBUS", "BOEING", "LOCKHEED", "NORTHROP", "RAYTHEON",
+    "GPS", "GLONASS", "GALILEO", "BEIDOU", "GNSS",
+    "SATELLITE", "SPACECRAFT", "GROUND STATION"
+  )
+  
+  # Сортируем: сначала приоритетные, потом остальные
+  sorted_matches <- c(
+    intersect(priority_order, unique_matches),
+    setdiff(unique_matches, priority_order)
+  )
+  
+  # Берём топ-3 наиболее релевантных
+  result <- paste(head(sorted_matches, 3), collapse = ", ")
+  
+  return(result)
 }
 
+corpus <- corpus %>%
+  mutate(target = map_chr(title, extract_target))
+
+# Статистика по целям
+target_stats <- corpus %>%
+  count(target, sort = TRUE) %>%
+  head(10)
+
+cli::cli_alert_info("Топ-10 целей:")
+print(target_stats)
+
 # ----------------------------------------------------------------------------
-# 3. Классификация вектора атаки (Vector) — РАСШИРЕННЫЙ КЛАССИФИКАТОР
+# 3. Классификация вектора атаки (Vector)
 # ----------------------------------------------------------------------------
+
+cli::cli_h2("3. Классификация векторов атак")
 
 classify_vector <- function(text) {
   if (is.na(text)) return("Unclassified")
@@ -122,9 +228,21 @@ classify_vector <- function(text) {
   return("Unclassified")
 }
 
+corpus <- corpus %>%
+  mutate(vector = map_chr(title, classify_vector))
+
+# Статистика по векторам
+vector_stats <- corpus %>%
+  count(vector, sort = TRUE)
+
+cli::cli_alert_info("Распределение векторов:")
+print(vector_stats)
+
 # ----------------------------------------------------------------------------
-# 4. Классификация сегмента (Segment) — УЛУЧШЕННАЯ ЛОГИКА
+# 4. Классификация сегмента (Segment)
 # ----------------------------------------------------------------------------
+
+cli::cli_h2("4. Классификация сегментов")
 
 classify_segment <- function(text, target) {
   text <- str_to_lower(text)
@@ -159,55 +277,42 @@ classify_segment <- function(text, target) {
   return("Unknown Segment")
 }
 
-# ----------------------------------------------------------------------------
-# 5. Извлечение дат из URL (для CISA/NASA с NA-датами) — ВЕКТОРНАЯ ВЕРСИЯ
-# ----------------------------------------------------------------------------
+corpus <- corpus %>%
+  mutate(segment = map2_chr(title, target, classify_segment))
 
-extract_date_from_url <- function(urls) {
-  # Извлекаем паттерн даты из URL (форматы: 2026/09/15 или 2026-09-15)
-  date_str <- str_extract(urls, "\\d{4}[/\\-]\\d{2}[/\\-]\\d{2}")
-  
-  # Парсим через parse_date_time (он принимает quiet = TRUE)
-  parsed <- parse_date_time(date_str, orders = c("ymd", "Ymd"), quiet = TRUE)
-  
-  as_date(parsed)
-}
+# Статистика по сегментам
+segment_stats <- corpus %>%
+  count(segment, sort = TRUE)
+
+cli::cli_alert_info("Распределение сегментов:")
+print(segment_stats)
 
 # ----------------------------------------------------------------------------
-# 6. Кластеризация и Верификация
+# 5. Вычисление year_month и кластеризация
 # ----------------------------------------------------------------------------
 
-cat("\n2. Извлечение сущностей и классификация...\n")
+cli::cli_h2("5. Кластеризация по (Target, Year-Month, Vector)")
 
-labeled_corpus <- corpus %>%
+# published_date уже POSIXct из шага 02, просто форматируем
+corpus <- corpus %>%
   mutate(
-    target = map_chr(title, extract_target),
-    vector = map_chr(title, classify_vector),
-    segment = map2_chr(title, target, classify_segment),
-    year_month = format(published_date, "%Y-%m"),
-    # Векторное извлечение дат из URL для записей с NA
-    published_date = if_else(
-      is.na(published_date),
-      extract_date_from_url(source_url),
-      published_date
-    ),
-    # Пересчитываем year_month после восстановления дат
-    year_month = if_else(
-      is.na(year_month),
-      format(published_date, "%Y-%m"),
-      year_month
-    )
+    year_month = format(published_date, "%Y-%m")
   )
 
-cat("3. Кластеризация по Цели + Месяц + Вектор...\n")
+# Статистика по year_month
+ym_stats <- corpus %>%
+  count(year_month, sort = TRUE)
 
-# Безопасная функция min для дат
+cli::cli_alert_info("Распределение по месяцам:")
+print(ym_stats)
+
+# Кластеризация
 safe_min_date <- function(x) {
-  if (all(is.na(x))) return(NA_Date_)
+  if (all(is.na(x))) return(NA_POSIXct_)
   min(x, na.rm = TRUE)
 }
 
-incidents <- labeled_corpus %>%
+incidents <- corpus %>%
   group_by(target, year_month, vector) %>%
   summarise(
     n_mentions = n(),
@@ -219,37 +324,13 @@ incidents <- labeled_corpus %>%
     .groups = "drop"
   )
 
-cat(sprintf("   Всего выявленных кластеров (потенциальных инцидентов): %d\n", nrow(incidents)))
+cli::cli_alert_success("Всего выявленных кластеров (потенциальных инцидентов): {nrow(incidents)}")
 
 # ----------------------------------------------------------------------------
-# 7. Ручная экспертная разметка крупнейшего кластера
+# 6. Верификация (правило двойного источника)
 # ----------------------------------------------------------------------------
 
-cat("\n4. Ручная разметка инцидента №1 (крупнейший кластер)...\n")
-
-if (nrow(incidents) > 0) {
-  max_cluster_idx <- which.max(incidents$n_mentions)
-  
-  if (incidents$n_mentions[max_cluster_idx] > 50 && incidents$target[max_cluster_idx] == "Unknown") {
-    cat(sprintf("   Найден крупный кластер: %d упоминаний, %d источников\n",
-                incidents$n_mentions[max_cluster_idx], incidents$n_sources[max_cluster_idx]))
-    cat("   Источники: ", str_sub(incidents$sources_list[max_cluster_idx], 1, 100), "...\n")
-    
-    # Проверяем украинский/военный след
-    if (str_detect(incidents$sources_list[max_cluster_idx], "kyivpost|unian|warontherocks|atlanticcouncil")) {
-      cat("   ✓ Обнаружен украинский/военный контекст. Применяем экспертную разметку.\n")
-      incidents$target[max_cluster_idx] <- "Satellite Communications (Ukraine/NATO)"
-      incidents$vector[max_cluster_idx] <- "Electronic Warfare / Cyber Intrusion"
-      incidents$segment[max_cluster_idx] <- "Space & Ground Segment"
-    }
-  }
-}
-
-# ----------------------------------------------------------------------------
-# 8. Применение правила двойной верификации
-# ----------------------------------------------------------------------------
-
-cat("\n5. Верификация (минимум 2 независимых издания/домена)...\n")
+cli::cli_h2("6. Верификация (минимум 2 независимых издания/домена)")
 
 verified_incidents <- incidents %>%
   mutate(
@@ -262,6 +343,7 @@ verified_summary <- verified_incidents %>%
   group_by(status) %>%
   summarise(count = n(), .groups = "drop")
 
+cli::cli_alert_info("Результат верификации:")
 print(verified_summary)
 
 # Финальная база — только верифицированные инциденты
@@ -272,26 +354,68 @@ final_db <- verified_incidents %>%
     n_mentions, n_sources, sources_list, first_seen
   )
 
-cat(sprintf("\n✔ Верифицированных инцидентов в базе: %d\n", nrow(final_db)))
+cli::cli_alert_success("Верифицированных инцидентов в базе: {nrow(final_db)}")
 
 # ----------------------------------------------------------------------------
-# 9. Сохранение результатов
+# 7. Диагностика и вывод результатов
 # ----------------------------------------------------------------------------
 
-write_rds(verified_incidents, file.path(PROCESSED_DIR, "incidents_all_clusters.rds"))
-write_rds(final_db, file.path(PROCESSED_DIR, "incidents_verified_v1.rds"))
+cli::cli_h2("7. Диагностика и сводка")
 
 if (nrow(final_db) > 0) {
-  cat("\n=== Топ-5 наиболее упоминаемых целей ===\n")
-  final_db %>% count(target, sort = TRUE) %>% head(5) %>% print()
+  # Топ-5 по медиа-охвату
+  cli::cli_h3("Топ-5 инцидентов по охвату независимых СМИ")
+  top5 <- final_db %>%
+    select(target, vector, segment, year_month, n_sources, sources_list) %>%
+    arrange(desc(n_sources)) %>%
+    head(5) %>%
+    mutate(
+      target = str_wrap(target, width = 35),
+      vector = str_wrap(vector, width = 30)
+    )
+  print(top5, n = 5, width = Inf)
   
-  cat("\n=== Распределение по векторам атак ===\n")
-  final_db %>% count(vector, sort = TRUE) %>% print()
+  # Топ-5 целей
+  cli::cli_h3("Топ-5 наиболее упоминаемых целей")
+  final_db %>%
+    count(target, sort = TRUE) %>%
+    head(5) %>%
+    print()
   
-  cat("\n=== Распределение по сегментам ===\n")
-  final_db %>% count(segment, sort = TRUE) %>% print()
+  # Распределение по векторам
+  cli::cli_h3("Распределение по векторам атак")
+  final_db %>%
+    count(vector, sort = TRUE) %>%
+    print()
+  
+  # Распределение по сегментам
+  cli::cli_h3("Распределение по сегментам")
+  final_db %>%
+    count(segment, sort = TRUE) %>%
+    print()
+  
+  # Временной диапазон
+  cli::cli_h3("Временной диапазон")
+  date_range <- final_db %>%
+    summarise(
+      min_date = format(min(first_seen, na.rm = TRUE), "%Y-%m-%d"),
+      max_date = format(max(first_seen, na.rm = TRUE), "%Y-%m-%d")
+    )
+  print(date_range)
 } else {
-  cat("\n⚠ Верифицированных инцидентов не найдено. База пуста.\n")
+  cli::cli_alert_warning("Верифицированных инцидентов не найдено. База пуста.")
 }
 
-cat(sprintf("\n✔ Данные сохранены в %s\n", PROCESSED_DIR))
+# ----------------------------------------------------------------------------
+# 8. Сохранение результатов
+# ----------------------------------------------------------------------------
+
+cli::cli_h2("8. Сохранение результатов")
+
+write_rds(verified_incidents, file.path(PROCESSED_DIR, "incidents_all_clusters.rds"))
+cli::cli_alert_success("Все кластеры -> incidents_all_clusters.rds")
+
+write_rds(final_db, file.path(PROCESSED_DIR, "incidents_verified_v1.rds"))
+cli::cli_alert_success("Верифицированные инциденты -> incidents_verified_v1.rds")
+
+cli::cli_alert_success("Данные сохранены в {PROCESSED_DIR}")
