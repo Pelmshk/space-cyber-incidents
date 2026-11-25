@@ -312,16 +312,21 @@ load_gdelt <- function() {
 load_cisa <- function() {
   files <- dir_ls(path(RAW_DIR, "cisa"), regexp = "\\.rds$")
   if (length(files) == 0) {
-    cli::cli_alert_warning("CISA: файлы не найдены")
+    cli::cli_alert_warning("CISA: файлы не найдены в {RAW_DIR}/cisa")
     return(empty_corpus())
   }
-  cli::cli_alert_info("CISA: найдено {length(files)} файлов")
+  
+  cli::cli_alert_info("CISA: найдено {length(files)} файлов для обработки")
   
   all_cisa <- map_dfr(files, ~ {
     df <- read_rds(.x)
+    cli::cli_alert_info("CISA: {basename(.x)} - {nrow(df)} строк")
+    
     tibble(
       raw_source      = "CISA",
-      source_type     = safe_col(df, "source"),
+      # ИСПРАВЛЕНИЕ: используем feed_source вместо source
+      # feed_source содержит "CISA_RSS", "CISA_HTML", "CISA_KEV"
+      source_type     = safe_col(df, "feed_source"),
       query_pattern   = NA_character_,
       title           = safe_col(df, "title"),
       source_url      = safe_col(df, "url"),
@@ -331,15 +336,10 @@ load_cisa <- function() {
     )
   })
   
-  # ДЕДУПЛИКАЦИЯ ВНУТРИ CISA
+  # Дедупликация по URL внутри CISA
   n_before <- nrow(all_cisa)
   all_cisa <- all_cisa %>% distinct(source_url, .keep_all = TRUE)
-  n_removed <- n_before - nrow(all_cisa)
-  if (n_removed > 0) {
-    cli::cli_alert_success("CISA: удалено {n_removed} дубликатов по URL (внутри источника)")
-  } else {
-    cli::cli_alert_info("CISA: дубликатов по URL не найдено")
-  }
+  cli::cli_alert_success("CISA: удалено {n_before - nrow(all_cisa)} дубликатов по URL")
   
   all_cisa
 }
@@ -347,16 +347,21 @@ load_cisa <- function() {
 load_nasa <- function() {
   files <- dir_ls(path(RAW_DIR, "nasa"), regexp = "\\.rds$")
   if (length(files) == 0) {
-    cli::cli_alert_warning("NASA: файлы не найдены")
+    cli::cli_alert_warning("NASA: файлы не найдены в {RAW_DIR}/nasa")
     return(empty_corpus())
   }
-  cli::cli_alert_info("NASA: найдено {length(files)} файлов")
+  
+  cli::cli_alert_info("NASA: найдено {length(files)} файлов для обработки")
   
   all_nasa <- map_dfr(files, ~ {
     df <- read_rds(.x)
+    cli::cli_alert_info("NASA: {basename(.x)} - {nrow(df)} строк")
+    
     tibble(
       raw_source      = "NASA",
-      source_type     = safe_col(df, "source"),
+      # ИСПРАВЛЕНИЕ: используем feed_source вместо source
+      # feed_source содержит "NASA_RSS", "NASA_HTML", "ESA_HTML"
+      source_type     = safe_col(df, "feed_source"),
       query_pattern   = NA_character_,
       title           = safe_col(df, "title"),
       source_url      = safe_col(df, "url"),
@@ -366,15 +371,10 @@ load_nasa <- function() {
     )
   })
   
-  # ДЕДУПЛИКАЦИЯ ВНУТРИ NASA
+  # Дедупликация по URL внутри NASA
   n_before <- nrow(all_nasa)
   all_nasa <- all_nasa %>% distinct(source_url, .keep_all = TRUE)
-  n_removed <- n_before - nrow(all_nasa)
-  if (n_removed > 0) {
-    cli::cli_alert_success("NASA: удалено {n_removed} дубликатов по URL (внутри источника)")
-  } else {
-    cli::cli_alert_info("NASA: дубликатов по URL не найдено")
-  }
+  cli::cli_alert_success("NASA: удалено {n_before - nrow(all_nasa)} дубликатов по URL")
   
   all_nasa
 }

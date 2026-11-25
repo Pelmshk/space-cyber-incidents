@@ -17,7 +17,6 @@
 - `data/` - данные (raw, processed, external)
 - `R/` - скрипты пайплайна
 - `reports/` - Quarto отчеты
-- `manuscript/` - научная статья
 - `output/` - финальные артефакты
 
 ## Запуск

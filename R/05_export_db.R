@@ -22,44 +22,43 @@ dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 input_file <- file.path(PROCESSED_DIR, "incidents_verified_v1.rds")
 
 if (!file.exists(input_file)) {
-  stop("❌ Файл верифицированных инцидентов не найден. Запустите R/03_verify_and_merge.R")
+  stop("Файл верифицированных инцидентов не найден. Запустите R/03_verify_and_merge.R")
 }
 
 db <- read_rds(input_file)
-cat(sprintf("✔ Загружено %d верифицированных инцидентов\n", nrow(db)))
+cat(sprintf("Загружено %d верифицированных инцидентов\n", nrow(db)))
 
 # ----------------------------------------------------------------------------
-# 1. Подготовка схемы данных (Data Curation)
+# 1. Подготовка схемы данных
 # ----------------------------------------------------------------------------
 
 cat("1. Нормализация схемы для БД...\n")
 
-# Приводим имена колонок к snake_case (стандарт для SQL)
+# Приводим имена колонок к snake_case
 db_sql <- db %>%
   rename_with(~ str_replace_all(.x, " ", "_")) %>%
   rename_with(~ str_to_lower(.x)) %>%
   mutate(
-    incident_id = row_number(), # Генерируем уникальный ID
-    first_seen  = as.character(first_seen) # SQLite плохо дружит с Date, конвертим в строку ISO
+    incident_id = row_number(),
+    first_seen  = as.character(first_seen)
   ) %>%
-  select(incident_id, everything()) # ID ставим первым
+  select(incident_id, everything())
 
 # ----------------------------------------------------------------------------
-# 2. Экспорт в SQLite (Реляционная БД)
+# 2. Экспорт в SQLite
 # ----------------------------------------------------------------------------
 
 cat("2. Экспорт в SQLite...\n")
 db_path <- file.path(OUTPUT_DIR, "space_cyber_db.sqlite")
 
-# Удаляем старую БД, если есть
 if (file.exists(db_path)) file.remove(db_path)
 
 con <- dbConnect(SQLite(), dbname = db_path)
 
-# Создаем основную таблицу инцидентов
+# Основная таблица
 dbWriteTable(con, "incidents", db_sql, overwrite = TRUE)
 
-# Создаем справочную таблицу источников (нормализация)
+# Таблица источников (нормализация)
 sources_tbl <- db_sql %>%
   select(incident_id, sources_list, n_sources) %>%
   separate_rows(sources_list, sep = ", ") %>%
@@ -68,33 +67,32 @@ sources_tbl <- db_sql %>%
 dbWriteTable(con, "incident_sources", sources_tbl, overwrite = TRUE)
 
 dbDisconnect(con)
-cat(sprintf("   ✔ База данных создана: %s\n", db_path))
+cat(sprintf("   База данных создана: %s\n", db_path))
 
 # ----------------------------------------------------------------------------
-# 3. Экспорт в Parquet (Колоночный формат для быстрого анализа)
+# 3. Экспорт в Parquet
 # ----------------------------------------------------------------------------
 
 cat("3. Экспорт в Parquet...\n")
 parquet_path <- file.path(OUTPUT_DIR, "space_cyber_db.parquet")
 
-# Возвращаем даты в формат Date для Parquet/Arrow
 db_parquet <- db_sql %>%
   mutate(first_seen = as.Date(first_seen))
 
 write_parquet(db_parquet, parquet_path)
-cat(sprintf("   ✔ Parquet файл создан: %s\n", parquet_path))
+cat(sprintf("   Parquet файл создан: %s\n", parquet_path))
 
 # ----------------------------------------------------------------------------
-# 4. Экспорт в CSV (Универсальный обмен)
+# 4. Экспорт в CSV
 # ----------------------------------------------------------------------------
 
 cat("4. Экспорт в CSV...\n")
 csv_path <- file.path(OUTPUT_DIR, "space_cyber_db.csv")
 write_csv(db_parquet, csv_path)
-cat(sprintf("   ✔ CSV файл создан: %s\n", csv_path))
+cat(sprintf("   CSV файл создан: %s\n", csv_path))
 
 # ----------------------------------------------------------------------------
-# 5. Валидация и Сводка
+# 5. Валидация
 # ----------------------------------------------------------------------------
 
 cat("\n=== Схема базы данных (SQLite) ===\n")
@@ -106,4 +104,4 @@ for (tbl in tables) {
 }
 dbDisconnect(con)
 
-cat(sprintf("\n✔ Экспорт завершен. Файлы в директории: %s\n", OUTPUT_DIR))
+cat(sprintf("\nЭкспорт завершен. Файлы в директории: %s\n", OUTPUT_DIR))

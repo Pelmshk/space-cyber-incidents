@@ -3,10 +3,10 @@
 # Сбор OSINT-данных об инцидентах ИБ в космических системах
 # ============================================================================
 # Источники:
-#   1. RSS: 25 фидов (космос, кибербез, OT/ICS)
-#   2. GDELT: 12 паттернов, диапазон 3 года
-#   3. CISA: RSS всех advisory + ICS + KEV
-#   4. NASA: RSS + HTML пагинация + ESA
+# 1. RSS: 25 фидов (космос, кибербез, OT/ICS)
+# 2. GDELT: 12 паттернов, диапазон 3 года
+# 3. CISA: RSS всех advisory + ICS + KEV + HTML пагинация
+# 4. NASA: RSS + HTML пагинация + ESA
 # ============================================================================
 
 suppressPackageStartupMessages({
@@ -130,7 +130,6 @@ collect_rss <- function(feeds_tbl, snapshot_date) {
     
     df <- res$result
     
-    # Универсальное извлечение полей (работает со всеми версиями tidyRSS)
     get_col <- function(names) {
       for (n in names) {
         if (n %in% names(df)) return(as.character(df[[n]]))
